@@ -1,42 +1,49 @@
-{-# LANGUAGE RankNTypes, OverloadedStrings #-}
+{-# LANGUAGE RankNTypes, ImpredicativeTypes, OverloadedStrings #-}
 
 module Network.IRC.Cast.Main where
 
 import Data.ByteString (ByteString)
-
-import qualified Network.IRC.Pipes as IRCPipe
-
 import qualified Data.Text.Encoding as E
+
+import Control.Concurrent (forkIO)
+
+import Network.IRC.Pipes
 
 import Network.Simple.TCP
 
 import Pipes
---import Pipes.Concurrent
 import Pipes.Network.TCP
 
-testMessages :: [ByteString]
-testMessages = map E.encodeUtf8
-  [":wolfe.freenode.net NOTICE * :*** Looking up your", 
-   " hostname...\r\n",
-   ":wolfe.freenode.net NOTICE * :*** Checking Ident\r\n",
-   ":wolfe.freenode.net NOTICE * :*** Found your hostname\r\n"]
+intro :: [IRCMsg]
+intro = [
+  IRCMsg {
+    msgPrefix = Nothing,
+    msgCmd = "NICK",
+    msgParams = ["ircast"],
+    msgTrail = ""
+    }
+  ,
+  IRCMsg {
+     msgPrefix = Nothing,
+     msgCmd = "USER",
+     msgParams = ["ircast", "0", "*"],
+     msgTrail = "ircast"
+     }
+  ]
 
 main :: IO ()
-main = withReadPipe go where 
-  
-  go :: Producer' ByteString IO () -> IO ()
-  go readPipe = runEffect (printMsgs readPipe) >>= handleResult
-  
-  handleResult :: Either IRCPipe.ParsingError () -> IO ()
-  handleResult = either print (const $ return ()) 
-     
-  printMsgs :: Producer' ByteString IO () -> 
-               Effect IO (Either IRCPipe.ParsingError ())
-  printMsgs p = for (IRCPipe.parseIrcMsgs p) (lift . print)
-       
-withReadPipe :: (Producer' ByteString IO () -> IO ()) -> IO ()
-withReadPipe f = f (each testMessages)
+main = do
+  withIRCPipes $ \output input -> do
+    _ <- forkIO $ runEffect (each intro >-> output)
+    runEffect (for input (lift . print))
 
-withIRCReadPipe :: (Producer' ByteString IO () -> IO ()) -> IO ()
-withIRCReadPipe f = connect "irc.freenode.net" "6667" $
-                      \(socket, _) -> f (fromSocket socket 4096)
+type IRCOutput = Consumer' IRCMsg IO ()
+type IRCInput = Producer' IRCMsg IO ()
+
+withIRCPipes :: (IRCOutput -> IRCInput -> IO ()) -> IO ()
+withIRCPipes f = 
+  connect "irc.freenode.net" "6667" $ \(socket, _) -> do 
+    let producer = parseIrcMsgs (fromSocket socket 4096)
+        consumer = writingIrcMsgs >-> toSocket socket 
+     
+    f consumer (fmap (const ()) producer)
