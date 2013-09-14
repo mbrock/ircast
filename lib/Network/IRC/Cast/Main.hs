@@ -32,7 +32,7 @@ main = withReadPipe go where
      
   printMsgs :: Producer' ByteString IO () -> 
                Effect IO (Either IRCPipe.ParsingError ())
-  printMsgs p = for (IRCPipe.ircMsgProducer p) (lift . print)
+  printMsgs p = for (IRCPipe.parseIrcMsgs p) (lift . print)
        
 withReadPipe :: (Producer' ByteString IO () -> IO ()) -> IO ()
 withReadPipe f = f (each testMessages)
