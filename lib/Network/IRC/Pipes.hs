@@ -14,12 +14,13 @@ import Control.Applicative ((<*))
 
 import Network.IRC.ByteString.Parser
 
-import Pipes (Producer, Producer', for, yield)
+import Pipes (Producer', for, yield)
 import Pipes.Attoparsec (parseMany, ParsingError)
 
-type Result m = Either (ParsingError, Producer ByteString m ()) ()
-
 ircMsgProducer :: Monad m => Producer' ByteString m () ->
-            Producer' IRCMsg m (Result m)
-ircMsgProducer p = tossParseLength $ parseMany (ircLine <* endOfLine) p
-  where tossParseLength = flip for (yield . snd)
+            Producer' IRCMsg m (Either ParsingError ())
+ircMsgProducer p = tossParseLength $ fmap cleanUpError p'
+  where p' = parseMany (ircLine <* endOfLine) p 
+        tossParseLength = flip for (yield . snd)
+        cleanUpError = either (Left . fst) (const $ Right ())
+        

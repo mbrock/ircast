@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes, OverloadedStrings #-}
+{-# LANGUAGE RankNTypes, OverloadedStrings, GADTs #-}
 
 import Test.Tasty
 import Test.Tasty.SmallCheck as SC
@@ -40,16 +40,23 @@ parseTests = testGroup "IRC parsing tests"
                       msgCmd = "NOTICE", msgParams = ["*"], 
                       msgTrail = "*** Found your hostname"} ] ]
     
+-- Use the IRC parsing pipe to parse a sequence of ByteStrings.
+parseAll :: [ByteString] -> Maybe [IRCMsg]
+parseAll xs = eitherToMaybe $ produce (ircMsgProducer (each xs))
+
 produce :: Error e => Producer' a (Writer [a]) (Either e b) -> Either e [a]
-produce p =
-  case runWriter $ runErrorT $ runEffect (for (errorP p) (tell . (:[]))) of
-    (Left e, _) -> Left e
-    (Right _, xs) -> Right xs
+produce p = execWriterError (collect (errorP p))
+
+collect :: (MonadWriter w m, w ~ [a]) => Producer' a m r -> m r
+collect p = runEffect (for p (tell . (:[])))
+
+execWriterError :: Error e => ErrorT e (Writer w) a -> Either e w
+execWriterError m = 
+  case runWriter (runErrorT m) of
+    (Left e, _)  -> Left e
+    (Right _, a) -> Right a
 
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe = either (const Nothing) Just
 
--- Use the IRC parsing pipe to parse a sequence of ByteStrings.
-parseAll :: [ByteString] -> Maybe [IRCMsg]
-parseAll xs = eitherToMaybe $ produce (ircMsgProducer (each xs))
 

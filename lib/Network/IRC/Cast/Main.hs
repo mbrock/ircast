@@ -22,11 +22,17 @@ testMessages = map E.encodeUtf8
    ":wolfe.freenode.net NOTICE * :*** Found your hostname\r\n"]
 
 main :: IO ()
-main = withReadPipe $ \readPipe ->
-  do x <- runEffect $ for (IRCPipe.ircMsgProducer readPipe) (lift . print)
-     case x of
-       Left (e, _) -> print e
-       Right _ -> return ()
+main = withReadPipe go where 
+  
+  go :: Producer' ByteString IO () -> IO ()
+  go readPipe = runEffect (printMsgs readPipe) >>= handleResult
+  
+  handleResult :: Either IRCPipe.ParsingError () -> IO ()
+  handleResult = either print (const $ return ()) 
+     
+  printMsgs :: Producer' ByteString IO () -> 
+               Effect IO (Either IRCPipe.ParsingError ())
+  printMsgs p = for (IRCPipe.ircMsgProducer p) (lift . print)
        
 withReadPipe :: (Producer' ByteString IO () -> IO ()) -> IO ()
 withReadPipe f = f (each testMessages)
